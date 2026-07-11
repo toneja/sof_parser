@@ -30,11 +30,15 @@ def build_lines(page):
 def parse_rows(lines):
     # parse the rows
     rows = []
+    account = 0  # 0 = main account
     for line in lines:
         tokens = line.split()
         if len(tokens) < 7:
             continue
         first_token = tokens[0]
+        # pull sub account id if present
+        if "FUND" in first_token and len(tokens) == 8:
+            account = tokens[7]
         # we only want rows with object codes
         if not re.compile(r"^\d{4}$").match(first_token):
             continue
@@ -66,12 +70,11 @@ def parse_rows(lines):
                 "BalanceAvailable": balance_available,
             }
         )
-    return rows
+    return rows, account
 
 
 def parse_pdf(pdf_file):
     # extract text from "STATUS OF FUNDS" pages
-    index = 0
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             lines = build_lines(page)
@@ -82,15 +85,16 @@ def parse_pdf(pdf_file):
                 and "EXPIRED" not in page_text
             ):
                 # write data to the output file
-                df = pd.DataFrame(parse_rows(lines))
+                data = parse_rows(lines)
+                df = pd.DataFrame(data[0])
+                account = data[1]
                 if (
-                    index == 0
+                    account == 0
                 ):  # First sheet is always the Totals, write it to a new file
                     with pd.ExcelWriter(
                         pdf_file.replace(".pdf", "-PARSED.xlsx"), engine="openpyxl"
                     ) as writer:
                         df.to_excel(writer, sheet_name=f"Account Summary", index=False)
-                        index += 1
                 else:
                     with pd.ExcelWriter(
                         pdf_file.replace(".pdf", "-PARSED.xlsx"),
@@ -98,9 +102,8 @@ def parse_pdf(pdf_file):
                         mode="a",
                     ) as writer:
                         df.to_excel(
-                            writer, sheet_name=f"SubAccount {index}", index=False
+                            writer, sheet_name=f"SubAccount {account}", index=False
                         )
-                        index += 1
 
 
 def parse_xlsx(xlsx_file):
