@@ -3,11 +3,11 @@
 import os
 import re
 import sys
+from tkinter import Tk, filedialog, messagebox
 
 import openpyxl
-import pdfplumber
 import pandas as pd
-from tkinter import Tk, filedialog, messagebox
+import pdfplumber
 
 
 def clean_money(value):
