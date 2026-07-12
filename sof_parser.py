@@ -28,8 +28,8 @@ def build_lines(page):
     return lines
 
 
-def parse_rows(lines):
-    # parse the rows
+def parse_funds(lines):
+    # parse the account funds
     rows = []
     account = 0  # 0 = main account
     for line in lines:
@@ -82,6 +82,31 @@ def parse_rows(lines):
     return rows, account, account_name
 
 
+def parse_comments(lines):
+    # parse the comments
+    rows = []
+    plan = 0  # HACKY
+    for line in lines:
+        tokens = line.split()
+        # print(tokens)
+        # get account id
+        if tokens[0] == "FUND":
+            account = "Unit" if len(tokens) == 7 else tokens[7]
+        if "Plan" in tokens:
+            # GLOBAL COMMENTS strings mess with this part
+            index = next(i for i, s in enumerate(tokens) if "Plan" in s)
+            plan = int(tokens[index + 1])
+            comments = " ".join(tokens[(index + 2) : :])
+        # check for truncated data on the next line
+        elif plan > 0 and plan != 1:
+            comments += f" {' '.join(tokens)}"
+        else:
+            continue
+        # print(plan, comments)
+        rows.append({"Plan": plan, "Comments": comments})
+    return rows, account
+
+
 def parse_pdf(pdf_file, output_file):
     # extract text from "STATUS OF FUNDS" pages
     with pdfplumber.open(pdf_file) as pdf:
@@ -89,13 +114,13 @@ def parse_pdf(pdf_file, output_file):
         for page in pdf.pages:
             lines = build_lines(page)
             page_text = "\n".join(lines).upper()
+            # get account funds data
             if (
                 "STATUS OF FUNDS" in page_text
                 and "COMMENTS" not in page_text
                 and "EXPIRED" not in page_text
             ):
-                # write data to the output file
-                data = parse_rows(lines)
+                data = parse_funds(lines)
                 df = pd.DataFrame(data[0])
                 account, account_name = data[1], data[2]
                 if account_name != "Unit":
@@ -114,6 +139,20 @@ def parse_pdf(pdf_file, output_file):
                         df.to_excel(
                             writer, sheet_name=f"{account} Summary", index=False
                         )
+            # Get the comments data
+            if "COMMENTS" in page_text:
+                data = parse_comments(lines)
+                # skip empty pages
+                if not data[0]:
+                    continue
+                df = pd.DataFrame(data[0])
+                account = data[1]
+                with pd.ExcelWriter(
+                    output_file,
+                    engine="openpyxl",
+                    mode="a",
+                ) as writer:
+                    df.to_excel(writer, sheet_name=f"{account} Comments", index=False)
     # handle Excel file - optional
     xlsx_file = pdf_file.replace(".pdf", ".xlsx")
     if os.path.exists(xlsx_file):
@@ -193,9 +232,10 @@ def format_workbook(
             total_cell.value = f"=SUM({column_letter}2:{column_letter}{max_row})"
             total_cell.number_format = currency_format
             total_cell.font = openpyxl.styles.Font(bold=True)
-            if not "Summary" in ws.title:
-                continue
             # simple conditional formatting
+            if "Summary" not in ws.title:
+                continue
+            # status of funds
             ws.conditional_formatting.add(
                 cell_range,
                 openpyxl.formatting.rule.CellIsRule(
@@ -225,14 +265,14 @@ def format_workbook(
 
 def main():
     os.chdir(os.path.dirname(__file__))
-    root = Tk()
-    root.withdraw()
     # handle PDF file - required
     if len(sys.argv) == 2:
         pdf_file = sys.argv[1]
         cmdline = True
     else:
         cmdline = False
+        root = Tk()
+        root.withdraw()
         pdf_file = filedialog.askopenfilename(
             initialdir=".",
             title="Select Status of Funds PDF",
