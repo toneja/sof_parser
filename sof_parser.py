@@ -257,7 +257,6 @@ def format_workbook(
 
 def main():
     os.chdir(os.path.dirname(__file__))
-    # handle PDF file - required
     if len(sys.argv) == 2:
         pdf_file = sys.argv[1]
         cmdline = True
@@ -287,6 +286,10 @@ def main():
                 "The output file will only include account summaries and comments.",
             )
     output_file = pdf_file.replace(".pdf", "-PARSED.xlsx")
+    # remove old data
+    if os.path.exists(output_file):
+        os.remove(output_file)
+    # handle PDF file - required
     parse_pdf(pdf_file, output_file)
     # format the new workbook
     format_workbook(
