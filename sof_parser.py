@@ -157,14 +157,6 @@ def parse_pdf(pdf_file, output_file):
     xlsx_file = pdf_file.replace(".pdf", ".xlsx")
     if os.path.exists(xlsx_file):
         parse_xlsx(xlsx_file, output_file, sub_accounts)
-    else:
-        if not cmdline:
-            messagebox.showwarning(
-                "Warning", f"Excel file: {os.path.basename(xlsx_file)} does not exist."
-            )
-            messagebox.showwarning(
-                "Warning", "The output file will only include account summaries."
-            )
 
 
 def parse_xlsx(xlsx_file, output_file, sub_accounts):
@@ -284,6 +276,16 @@ def main():
     if not os.path.exists(pdf_file):
         print(f"{pdf_file} does not exist.")
         return
+    xlsx_file = pdf_file.replace(".pdf", ".xlsx")
+    if not os.path.exists(xlsx_file):
+        if not cmdline:
+            messagebox.showwarning(
+                "Warning", f"Excel file: {os.path.basename(xlsx_file)} does not exist."
+            )
+            messagebox.showwarning(
+                "Warning",
+                "The output file will only include account summaries and comments.",
+            )
     output_file = pdf_file.replace(".pdf", "-PARSED.xlsx")
     parse_pdf(pdf_file, output_file)
     # format the new workbook
