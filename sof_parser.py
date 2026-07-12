@@ -6,7 +6,7 @@ import re
 import openpyxl
 import pdfplumber
 import pandas as pd
-from tkinter import Tk, filedialog
+from tkinter import Tk, filedialog, messagebox
 
 
 def clean_money(value):
@@ -42,7 +42,9 @@ def parse_rows(lines):
         # we only want rows with object codes
         if not re.compile(r"^\d{4}$").match(first_token):
             continue
-        numeric_tokens = [token for token in tokens if re.compile(r"^-?\d[\d,]*\.\d{2}$").match(token)]
+        numeric_tokens = [
+            token for token in tokens if re.compile(r"^-?\d[\d,]*\.\d{2}$").match(token)
+        ]
         if len(numeric_tokens) < 5:
             continue
         try:
@@ -73,7 +75,7 @@ def parse_rows(lines):
     return rows, account
 
 
-def parse_pdf(pdf_file):
+def parse_pdf(pdf_file, output_file):
     # extract text from "STATUS OF FUNDS" pages
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -91,13 +93,11 @@ def parse_pdf(pdf_file):
                 if (
                     account == 0
                 ):  # First sheet is always the Totals, write it to a new file
-                    with pd.ExcelWriter(
-                        pdf_file.replace(".pdf", "-PARSED.xlsx"), engine="openpyxl"
-                    ) as writer:
+                    with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
                         df.to_excel(writer, sheet_name=f"Account Summary", index=False)
                 else:
                     with pd.ExcelWriter(
-                        pdf_file.replace(".pdf", "-PARSED.xlsx"),
+                        output_file,
                         engine="openpyxl",
                         mode="a",
                     ) as writer:
@@ -106,7 +106,7 @@ def parse_pdf(pdf_file):
                         )
 
 
-def parse_xlsx(xlsx_file):
+def parse_xlsx(xlsx_file, output_file):
     # Sub Accounts
     sub_accounts = {
         "001": "Jana,Choi",
@@ -118,9 +118,11 @@ def parse_xlsx(xlsx_file):
     for account in sub_accounts.keys():
         sub_df = df[df["Detail Sub Account"] == int(account)].copy()
         # sort data by Object Code
-        sub_df = sub_df.sort_values(by="Object Class", key=lambda x: x.astype(str).str[:3].astype(int))
+        sub_df = sub_df.sort_values(
+            by="Object Class", key=lambda x: x.astype(str).str[:3].astype(int)
+        )
         with pd.ExcelWriter(
-            xlsx_file.replace(".xlsx", "-PARSED.xlsx"),
+            output_file,
             engine="openpyxl",
             mode="a",
             if_sheet_exists="replace",
@@ -202,26 +204,35 @@ def format_workbook(
     wb.save(filename)
 
 
-if __name__ == "__main__":
+def main():
     os.chdir(os.path.dirname(__file__))
     root = Tk()
     root.withdraw()
+    # handle PDF file - required
     pdf_file = filedialog.askopenfilename(
         initialdir=".",
         title="Select Status of Funds PDF",
         filetypes=[("PDF Files", "*.pdf")],
     )
-    if not os.path.exists(pdf_file):
-        quit(f"{pdf_file} not found.")
+    if not pdf_file:
+        messagebox.showerror("Error", "No PDF file selected.")
+        return
+    output_file = pdf_file.replace(".pdf", "-PARSED.xlsx")
+    parse_pdf(pdf_file, output_file)
+    # handle Excel file - optional
     xlsx_file = pdf_file.replace(".pdf", ".xlsx")
-    if not os.path.exists(xlsx_file):
-        quit(f"{xlsx_file} not found.")
-    # parse the files
-    parse_pdf(pdf_file)
-    parse_xlsx(xlsx_file)
+    if os.path.exists(xlsx_file):
+        parse_xlsx(xlsx_file, output_file)
+    else:
+        messagebox.showwarning(
+            "Warning", f"Excel file: {os.path.basename(xlsx_file)} does not exist."
+        )
+        messagebox.showwarning(
+            "Warning", "The output file will only include account summaries."
+        )
     # format the new workbook
     format_workbook(
-        xlsx_file.replace(".xlsx", "-PARSED.xlsx"),
+        output_file,
         currency_columns=[
             "FinancialPlan",
             "Reconciled",
@@ -232,3 +243,19 @@ if __name__ == "__main__":
             "Reconciled Amt",
         ],
     )
+    # success?
+    if os.path.exists(output_file):
+        try:
+            with pd.ExcelFile(output_file) as xls:
+                messagebox.showinfo(
+                    "Success",
+                    f"File {os.path.basename(output_file)} saved successfully!",
+                )
+        except Exception as e:
+            messagebox.showerror("Error", f"Output file {output_file} is corrupted.")
+    else:
+        messagebox.showerror("Error", f"Failed to create output file {output_file}.")
+
+
+if __name__ == "__main__":
+    main()
