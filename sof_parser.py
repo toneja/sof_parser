@@ -2,6 +2,7 @@
 
 import os
 import re
+import sys
 
 import openpyxl
 import pdfplumber
@@ -33,12 +34,18 @@ def parse_rows(lines):
     account = 0  # 0 = main account
     for line in lines:
         tokens = line.split()
-        if len(tokens) < 7:
+        # print(tokens)
+        if len(tokens) < 4:
             continue
         first_token = tokens[0]
         # pull sub account id if present
-        if "FUND" in first_token and len(tokens) == 8:
+        if first_token == "FUND" and len(tokens) == 8:
             account = tokens[7]
+        # account name
+        if tokens[3] == "DESCRIPTION:":
+            account_name = (
+                "Unit" if "Unit" in tokens else ",".join(tokens[4:]).replace("/", ",")
+            )
         # we only want rows with object codes
         if not re.compile(r"^\d{4}$").match(first_token):
             continue
@@ -72,12 +79,13 @@ def parse_rows(lines):
                 "BalanceAvailable": balance_available,
             }
         )
-    return rows, account
+    return rows, account, account_name
 
 
 def parse_pdf(pdf_file, output_file):
     # extract text from "STATUS OF FUNDS" pages
     with pdfplumber.open(pdf_file) as pdf:
+        sub_accounts = {}
         for page in pdf.pages:
             lines = build_lines(page)
             page_text = "\n".join(lines).upper()
@@ -89,12 +97,14 @@ def parse_pdf(pdf_file, output_file):
                 # write data to the output file
                 data = parse_rows(lines)
                 df = pd.DataFrame(data[0])
-                account = data[1]
+                account, account_name = data[1], data[2]
+                if account_name != "Unit":
+                    sub_accounts[account] = account_name
                 if (
                     account == 0
                 ):  # First sheet is always the Totals, write it to a new file
                     with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
-                        df.to_excel(writer, sheet_name=f"Account Summary", index=False)
+                        df.to_excel(writer, sheet_name=f"Unit Summary", index=False)
                 else:
                     with pd.ExcelWriter(
                         output_file,
@@ -102,20 +112,27 @@ def parse_pdf(pdf_file, output_file):
                         mode="a",
                     ) as writer:
                         df.to_excel(
-                            writer, sheet_name=f"SubAccount {account}", index=False
+                            writer, sheet_name=f"{account} Summary", index=False
                         )
+    # handle Excel file - optional
+    xlsx_file = pdf_file.replace(".pdf", ".xlsx")
+    if os.path.exists(xlsx_file):
+        parse_xlsx(xlsx_file, output_file, sub_accounts)
+    else:
+        if not cmdline:
+            messagebox.showwarning(
+                "Warning", f"Excel file: {os.path.basename(xlsx_file)} does not exist."
+            )
+            messagebox.showwarning(
+                "Warning", "The output file will only include account summaries."
+            )
 
 
-def parse_xlsx(xlsx_file, output_file):
-    # Sub Accounts
-    sub_accounts = {
-        "001": "Jana,Choi",
-        "045": "Mahaffee,Stockwell,Grunwald",
-        "046": "Weiland,Zasada,Mollov",
-        "129": "IR4 Weiland",
-    }
+def parse_xlsx(xlsx_file, output_file, sub_accounts):
     df = pd.read_excel(xlsx_file)
     for account in sub_accounts.keys():
+        if account == 0:
+            continue
         sub_df = df[df["Detail Sub Account"] == int(account)].copy()
         # sort data by Object Code
         sub_df = sub_df.sort_values(
@@ -127,7 +144,9 @@ def parse_xlsx(xlsx_file, output_file):
             mode="a",
             if_sheet_exists="replace",
         ) as writer:
-            sub_df.to_excel(writer, sheet_name=sub_accounts.get(account), index=False)
+            sub_df.to_excel(
+                writer, sheet_name=f"{account} {sub_accounts.get(account)}", index=False
+            )
 
 
 def format_workbook(
@@ -174,7 +193,7 @@ def format_workbook(
             total_cell.value = f"=SUM({column_letter}2:{column_letter}{max_row})"
             total_cell.number_format = currency_format
             total_cell.font = openpyxl.styles.Font(bold=True)
-            if not "Account" in ws.title:
+            if not "Summary" in ws.title:
                 continue
             # simple conditional formatting
             ws.conditional_formatting.add(
@@ -209,27 +228,24 @@ def main():
     root = Tk()
     root.withdraw()
     # handle PDF file - required
-    pdf_file = filedialog.askopenfilename(
-        initialdir=".",
-        title="Select Status of Funds PDF",
-        filetypes=[("PDF Files", "*.pdf")],
-    )
-    if not pdf_file:
-        messagebox.showerror("Error", "No PDF file selected.")
+    if len(sys.argv) == 2:
+        pdf_file = sys.argv[1]
+        cmdline = True
+    else:
+        cmdline = False
+        pdf_file = filedialog.askopenfilename(
+            initialdir=".",
+            title="Select Status of Funds PDF",
+            filetypes=[("PDF Files", "*.pdf")],
+        )
+        if not pdf_file:
+            messagebox.showerror("Error", "No PDF file selected.")
+            return
+    if not os.path.exists(pdf_file):
+        print(f"{pdf_file} does not exist.")
         return
     output_file = pdf_file.replace(".pdf", "-PARSED.xlsx")
     parse_pdf(pdf_file, output_file)
-    # handle Excel file - optional
-    xlsx_file = pdf_file.replace(".pdf", ".xlsx")
-    if os.path.exists(xlsx_file):
-        parse_xlsx(xlsx_file, output_file)
-    else:
-        messagebox.showwarning(
-            "Warning", f"Excel file: {os.path.basename(xlsx_file)} does not exist."
-        )
-        messagebox.showwarning(
-            "Warning", "The output file will only include account summaries."
-        )
     # format the new workbook
     format_workbook(
         output_file,
@@ -247,14 +263,23 @@ def main():
     if os.path.exists(output_file):
         try:
             with pd.ExcelFile(output_file) as xls:
-                messagebox.showinfo(
-                    "Success",
-                    f"File {os.path.basename(output_file)} saved successfully!",
-                )
+                if cmdline:
+                    print("Success!")
+                else:
+                    messagebox.showinfo(
+                        "Success",
+                        f"File {os.path.basename(output_file)} saved successfully!",
+                    )
         except Exception as e:
-            messagebox.showerror("Error", f"Output file {output_file} is corrupted.")
+            if not cmdline:
+                messagebox.showerror(
+                    "Error", f"Output file {output_file} is corrupted."
+                )
     else:
-        messagebox.showerror("Error", f"Failed to create output file {output_file}.")
+        if not cmdline:
+            messagebox.showerror(
+                "Error", f"Failed to create output file {output_file}."
+            )
 
 
 if __name__ == "__main__":
