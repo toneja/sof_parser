@@ -97,14 +97,23 @@ def parse_comments(lines):
             index = next(i for i, s in enumerate(tokens) if "Plan" in s)
             plan = int(tokens[index + 1])
             comments = " ".join(tokens[(index + 2) : :])
+            money_pattern = re.compile(
+                r"-?(?:"
+                r"\$?\d{1,3}(?:,\d{3})+(?:\.\d{2})?"
+                r"|\$\d+(?:\.\d{2})?"
+                r"|\d+\.\d{2}"
+                r")"
+            )
+            match = money_pattern.search(comments)
+            amount = clean_money(match.group(0).replace("$", "")) if match else ""
         # check for truncated data on the next line
         elif plan > 0:
-            rows[-1][list(rows[-1].keys())[1]] += f" {' '.join(tokens)}"
+            rows[-1][list(rows[-1].keys())[-1]] += f" {' '.join(tokens)}"
             continue
         else:
             continue
         # print(plan, comments)
-        rows.append({"Plan": plan, "Comments": comments})
+        rows.append({"Plan": plan, "Amount": amount, "Comments": comments})
     return rows, account
 
 
@@ -298,6 +307,7 @@ def main():
             "BalanceAvailable",
             "Unreconciled Amt",
             "Reconciled Amt",
+            "Amount",
         ],
     )
     # success?
