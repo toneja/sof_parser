@@ -165,10 +165,8 @@ def parse_xlsx(xlsx_file, output_file, sub_accounts):
         if account == 0:
             continue
         sub_df = df[df["Detail Sub Account"] == int(account)].copy()
-        # sort data by Object Code
-        sub_df = sub_df.sort_values(
-            by="Object Class", key=lambda x: x.astype(str).str[:3].astype(int)
-        )
+        # sort data by Doc Type->Vendor->Request Date
+        sub_df = sub_df.sort_values(by=["Doc Type", "Vendor", "Request Date"])
         with pd.ExcelWriter(
             output_file,
             engine="openpyxl",
@@ -209,10 +207,10 @@ def format_workbook(
             column_letter = openpyxl.utils.get_column_letter(col)
             # Fit width to header
             ws.column_dimensions[column_letter].width = len(header) + column_padding
-            if header not in currency_columns:
-                continue
             cell_range = f"{column_letter}2:{column_letter}{max_row}"
             # Apply currency number format
+            if header not in currency_columns:
+                continue
             for row in range(2, max_row + 1):
                 ws.cell(row=row, column=col).number_format = currency_format
             # add a totals row
