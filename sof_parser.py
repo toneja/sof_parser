@@ -229,25 +229,22 @@ def format_workbook(
             # status of funds
             ws.conditional_formatting.add(
                 f"G2:G{max_row}",
-                openpyxl.formatting.rule.CellIsRule(
-                    operator="lessThan",
-                    formula=["0"],
+                openpyxl.formatting.rule.FormulaRule(
+                    formula=["G2<=0"],
                     fill=red_fill,
                 ),
             )
             ws.conditional_formatting.add(
                 f"G2:G{max_row}",
-                openpyxl.formatting.rule.CellIsRule(
-                    operator="equal",
-                    formula=["0"],
+                openpyxl.formatting.rule.FormulaRule(
+                    formula=["AND(G2>0,G2<=C2*0.10)"],
                     fill=yellow_fill,
                 ),
             )
             ws.conditional_formatting.add(
                 f"G2:G{max_row}",
-                openpyxl.formatting.rule.CellIsRule(
-                    operator="greaterThan",
-                    formula=["0"],
+                openpyxl.formatting.rule.FormulaRule(
+                    formula=["G2>C2*0.10"],
                     fill=green_fill,
                 ),
             )
