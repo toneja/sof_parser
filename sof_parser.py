@@ -99,7 +99,8 @@ def parse_comments(lines):
             comments = " ".join(tokens[(index + 2) : :])
         # check for truncated data on the next line
         elif plan > 0:
-            comments += f" {' '.join(tokens)}"
+            rows[-1][list(rows[-1].keys())[1]] += f" {' '.join(tokens)}"
+            continue
         else:
             continue
         # print(plan, comments)
