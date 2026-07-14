@@ -107,7 +107,7 @@ def parse_comments(lines):
             match = money_pattern.search(comments)
             amount = clean_money(match.group(0).replace("$", "")) if match else ""
         # check for truncated data on the next line
-        elif plan > 0:
+        elif plan > 0 and "COMMENTS" not in tokens[0]:
             rows[-1][list(rows[-1].keys())[-1]] += f" {' '.join(tokens)}"
             continue
         else:
