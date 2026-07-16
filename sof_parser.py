@@ -107,7 +107,7 @@ def parse_comments(lines):
             match = money_pattern.search(comments)
             amount = clean_money(match.group(0).replace("$", "")) if match else ""
         # check for truncated data on the next line
-        elif plan > 0 and "COMMENTS" not in tokens[0]:
+        elif plan > 0 and tokens[0] != "COMMENTS:":
             rows[-1][list(rows[-1].keys())[-1]] += f" {' '.join(tokens)}"
             continue
         else:
@@ -118,13 +118,12 @@ def parse_comments(lines):
 
 
 def parse_pdf(pdf_file, output_file):
-    # extract text from "STATUS OF FUNDS" pages
     with pdfplumber.open(pdf_file) as pdf:
         sub_accounts = {}
         for page in pdf.pages:
             lines = build_lines(page)
             page_text = "\n".join(lines).upper()
-            # get account funds data
+            # extract text from "STATUS OF FUNDS" pages
             if (
                 "STATUS OF FUNDS" in page_text
                 and "COMMENTS" not in page_text
@@ -133,14 +132,14 @@ def parse_pdf(pdf_file, output_file):
                 data = parse_funds(lines)
                 df = pd.DataFrame(data[0])
                 account, account_name = data[1], data[2]
-                if account_name != "Unit":
-                    sub_accounts[account] = account_name
                 if (
                     account == 0
                 ):  # First sheet is always the Totals, write it to a new file
                     with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
                         df.to_excel(writer, sheet_name=f"Unit Summary", index=False)
                 else:
+                    # add sub accounts to dictionary
+                    sub_accounts[account] = account_name
                     with pd.ExcelWriter(
                         output_file,
                         engine="openpyxl",
@@ -172,9 +171,9 @@ def parse_pdf(pdf_file, output_file):
 def parse_xlsx(xlsx_file, output_file, sub_accounts):
     df = pd.read_excel(xlsx_file)
     for account in sub_accounts.keys():
-        if account == 0:
-            continue
         sub_df = df[df["Detail Sub Account"] == int(account)].copy()
+        if sub_df.empty:
+            continue
         # sort data by Doc Type->Vendor->Request Date
         sub_df = sub_df.sort_values(by=["Doc Type", "Vendor", "Request Date"])
         with pd.ExcelWriter(
