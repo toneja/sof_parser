@@ -92,8 +92,8 @@ def parse_comments(lines):
         # get account id
         if tokens[0] == "FUND":
             account = "Unit" if len(tokens) == 7 else tokens[7]
-        if "Plan" in tokens:
-            # GLOBAL COMMENTS strings mess with this part
+        # 'GLOBAL COMMENTS:' strings mess with this part
+        if any("Plan" in token for token in tokens):
             index = next(i for i, s in enumerate(tokens) if "Plan" in s)
             plan = int(tokens[index + 1])
             comments = " ".join(tokens[(index + 2) : :])
@@ -120,6 +120,7 @@ def parse_comments(lines):
 def parse_pdf(pdf_file, output_file):
     with pdfplumber.open(pdf_file) as pdf:
         sub_accounts = {}
+        comments, last_row = 0, 0
         for page in pdf.pages:
             lines = build_lines(page)
             page_text = "\n".join(lines).upper()
@@ -148,20 +149,44 @@ def parse_pdf(pdf_file, output_file):
                         df.to_excel(
                             writer, sheet_name=f"{account} Summary", index=False
                         )
+                comments = 0
             # Get the comments data
             if "COMMENTS" in page_text:
+                comments += 1
                 data = parse_comments(lines)
                 # skip empty pages
                 if not data[0]:
                     continue
                 df = pd.DataFrame(data[0])
                 account = data[1]
-                with pd.ExcelWriter(
-                    output_file,
-                    engine="openpyxl",
-                    mode="a",
-                ) as writer:
-                    df.to_excel(writer, sheet_name=f"{account} Comments", index=False)
+                if comments == 1:
+                    with pd.ExcelWriter(
+                        output_file,
+                        engine="openpyxl",
+                        mode="a",
+                    ) as writer:
+                        df.to_excel(
+                            writer,
+                            sheet_name=f"{account} Comments",
+                            index=False,
+                        )
+                    # get last row value so we can append additional comments pages
+                    last_row = len(df) + 1
+                else:
+                    with pd.ExcelWriter(
+                        output_file,
+                        engine="openpyxl",
+                        mode="a",
+                        if_sheet_exists="overlay",
+                    ) as writer:
+                        df.to_excel(
+                            writer,
+                            sheet_name=f"{account} Comments",
+                            startrow=last_row,
+                            index=False,
+                            header=False,
+                        )
+                    last_row += len(df) + 1
     # handle Excel file - optional
     xlsx_file = pdf_file.replace(".pdf", ".xlsx")
     if os.path.exists(xlsx_file):
@@ -170,21 +195,33 @@ def parse_pdf(pdf_file, output_file):
 
 def parse_xlsx(xlsx_file, output_file, sub_accounts):
     df = pd.read_excel(xlsx_file)
-    for account in sub_accounts.keys():
-        sub_df = df[df["Detail Sub Account"] == int(account)].copy()
-        if sub_df.empty:
-            continue
-        # sort data by Doc Type->Vendor->Request Date
-        sub_df = sub_df.sort_values(by=["Doc Type", "Vendor", "Request Date"])
-        with pd.ExcelWriter(
-            output_file,
-            engine="openpyxl",
-            mode="a",
-            if_sheet_exists="replace",
-        ) as writer:
-            sub_df.to_excel(
-                writer, sheet_name=f"{account} {sub_accounts.get(account)}", index=False
-            )
+    # sort data by Doc Type->Vendor->Request Date
+    df = df.sort_values(by=["Doc Type", "Vendor", "Request Date"])
+    if sub_accounts:
+        for account in sub_accounts.keys():
+            sub_df = df[df["Detail Sub Account"] == int(account)].copy()
+            if sub_df.empty:
+                continue
+            with pd.ExcelWriter(
+                output_file,
+                engine="openpyxl",
+                mode="a",
+                if_sheet_exists="replace",
+            ) as writer:
+                df.to_excel(
+                    writer,
+                    sheet_name=f"{account} {sub_accounts.get(account)}",
+                    index=False,
+                )
+    else:
+        for account in df["Detail Sub Account"].unique():
+            with pd.ExcelWriter(
+                output_file,
+                engine="openpyxl",
+                mode="a",
+                if_sheet_exists="replace",
+            ) as writer:
+                df.to_excel(writer, sheet_name=f"{account} Unit", index=False)
 
 
 def format_workbook(
